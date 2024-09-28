@@ -22,66 +22,62 @@ public class KafkaDeliveryHandler {
     protected String tenantId = "";
     @Autowired
     KafkaTemplate<String, GenericRecord> template;
+    private static String TIMESTAMP = "timestamp";
     private static final Logger LOGGER = LoggerFactory.getLogger(KafkaDeliveryHandler.class);
     public void deliverAvroRecord(GenericRecord payload) throws Exception {
-        boolean validPayload = validatePayloadTS(payload);
-        if (validPayload) {
+        if (validatePayloadTS(payload)) {
             deliver(payload);
         } else {
             LOGGER.debug("Not delivering invalid payload: {}", payload);
         }
     }
     private boolean validatePayloadTS(GenericRecord payload) {
-        long payloadTimestamp = 0;
-        long currentTimestamp = Instant.now().toEpochMilli();
-        if (payload.getSchema().getField("timestamp") != null) {
-            Object timestampObj = payload.get("timestamp");
+        long payloadTS = 0;
+        if (payload.getSchema().getField(TIMESTAMP) != null) {
+            Object timestampObj = payload.get(TIMESTAMP);
             if (timestampObj != null) {
-                payloadTimestamp = ((Long) timestampObj);
+                payloadTS = ((Long) timestampObj);
             }
         }
-        long limit = currentTimestamp + (5 * 60 * 1000);
-        if (payloadTimestamp > limit) {
+        long limit = Instant.now().toEpochMilli() + (60_000);
+        if (payloadTS > limit) {
             LOGGER.warn(
-                    "Ignoring packet since it's too far in future:\nCurrent:{},\nTimestamp:{}\nPayload:{}",
-                    limit,
-                    payloadTimestamp,
-                    payload);
+                    "Packet is from far future:\nCurrent:{},\nTimestamp:{}\nPayload:{}",
+                    limit, payloadTS, payload);
             return false;
         }
-        if (payloadTimestamp <= 0) {
-            LOGGER.warn("Payload timestamp is 0 for payload {}", payload);
+        if (payloadTS <= 0) {
+            LOGGER.warn("Invalid TS in payload: {}", payload);
             return false;
         }
         return true;
     }
 
     public void deliver(GenericRecord payload) throws Exception {
-        deliverAvroRecordViaKafka(payload, getTopicForPayload(payload));
+        sendToKafka(payload, getTopicFromPayload(payload));
     }
 
-    private void deliverAvroRecordViaKafka(GenericRecord payload, String topic) throws Exception {
+    private void sendToKafka(GenericRecord payload, String topic) throws Exception {
         long payloadTimestamp = 0;
         try {
-            if (payload.getSchema().getField("timestamp") != null) {
-                Object timestampObj = payload.get("timestamp");
-                if (timestampObj != null) {
-                    payloadTimestamp = ((Long) timestampObj);
+            long payloadTS = 0;
+            if (payload.getSchema().getField(TIMESTAMP) != null) {
+                Object objTS = payload.get(TIMESTAMP);
+                if (objTS != null) {
+                    payloadTS = ((Long) objTS);
                 }
             }
-
             StringBuilder tenantTopic = new StringBuilder(topic);
             if (StringUtils.isNotBlank(tenantId)) {
                 tenantTopic.append("-").append(tenantId);
             }
-
-            MessageBuilder<GenericRecord> msgPayloadBuilder =
+            MessageBuilder<GenericRecord> msgBuilder =
                     MessageBuilder.withPayload(payload)
                             .setHeader(KafkaHeaders.TOPIC, tenantTopic.toString())
-                            .setHeader(KafkaHeaders.TIMESTAMP, payloadTimestamp);
-            addKafkaParitionKey(msgPayloadBuilder, payload);
+                            .setHeader(KafkaHeaders.TIMESTAMP, payloadTS);
+            addKafkaParitionKey(msgBuilder, payload);
             CompletableFuture<SendResult<String, GenericRecord>> future =
-                    template.send(msgPayloadBuilder.build());
+                    template.send(msgBuilder.build());
             future.whenComplete(
                     (res, ex) -> {
                         if (ex != null) {
@@ -92,7 +88,7 @@ public class KafkaDeliveryHandler {
                                             "topic",
                                             topic,
                                             "vendor",
-                                            getVendor(payload))
+                                            getVendorFromPayload(payload))
                                     .increment();
                         }
                     });
@@ -111,21 +107,20 @@ public class KafkaDeliveryHandler {
                 break;
         }
     }
-    public static String getTopicForPayload(GenericRecord payload) {
+    public static String getTopicFromPayload(GenericRecord payload) {
         switch (payload.getSchema().getName()) {
             case "WeatherData":
                 return "weatherData";
             default:
-                throw new RuntimeException(
-                        "Kafka topic not known for the message type of class: "
-                                + payload.getSchema().getFullName());
+                throw new RuntimeException("Topic not know for payload: "
+                        + payload.getSchema().getFullName());
         }
     }
-    private String getVendor(GenericRecord payload) {
+    private String getVendorFromPayload(GenericRecord payload) {
         if (payload.getSchema().getField("vendor") != null) {
             return payload.get("vendor").toString();
         } else {
-            return "not-set";
+            return "PAYLOAD-WITH-NO-VENDOR";
         }
     }
 }

@@ -66,7 +66,6 @@ public class WeatherDataDTO {
                 .build();
     }
 
-    // Nested DTO Classes
     public static class LocationDTO {
         private double latitude;
         private double longitude;
@@ -119,8 +118,6 @@ public class WeatherDataDTO {
         private int value;
         private String unit;
 
-        // Getters and Setters
-
         public int getValue() {
             return value;
         }
@@ -147,8 +144,6 @@ public class WeatherDataDTO {
     public static class PressureDTO {
         private int value;
         private String unit;
-
-        // Getters and Setters
 
         public int getValue() {
             return value;

@@ -11,10 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/weather/data")
 public class WeatherController {
-
     @Autowired
     WeatherDataService weatherDataService;
-
     @PostMapping("/push")
     public void getWeatherData(@RequestBody WeatherDataDTO weatherDataDTO) throws Exception {
         this.weatherDataService.processWeatherData(weatherDataDTO);
